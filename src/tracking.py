@@ -56,7 +56,7 @@ class ExperimentTracker:
                     project=self.wandb_project_name,
                     entity=self.wandb_entity,
                     name=experiment_name,
-                    confg=params
+                    config=params
                 )
                 wandb.log({
                     'feature_wave': feature_wave,
