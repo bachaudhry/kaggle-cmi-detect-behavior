@@ -2,6 +2,7 @@ import pandas as pd
 import os
 from datetime import datetime
 import wandb
+import json
 
 class ExperimentTracker:
     def __init__(self, project_path, use_wandb=False, wandb_project_name=None, wandb_entity=None):
@@ -38,7 +39,7 @@ class ExperimentTracker:
             'model_name': model_name,
             'feature_wave': feature_wave,
             'cv_score': cv_score,
-            'params': params,
+            'params': str(params),
             'notes': notes
         }
         # Log to local CSV file
@@ -56,13 +57,13 @@ class ExperimentTracker:
                     project=self.wandb_project_name,
                     entity=self.wandb_entity,
                     name=experiment_name,
-                    config=params
+                    config=params,
+                    reinit=True
                 )
                 wandb.log({
                     'feature_wave': feature_wave,
                     'cv_score': cv_score,
                     'model_name': model_name,
-                    'notes': notes
                 })
                 wandb.finish()
                 print(f"Experiment '{experiment_name}' logged to W&B")
