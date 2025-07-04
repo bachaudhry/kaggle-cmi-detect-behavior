@@ -1,0 +1,19 @@
+/home/code/kaggle/kaggle-cmi-detect-behavior/
+├── data/
+│   ├── train.csv
+│   ├── test.csv
+│   ├── train_demographics.csv
+│   ├── test_demographics.csv
+│   └── sample_submission.csv
+├── notebooks/
+│   ├── 01-initial-eda.ipynb
+│   └── 02-baseline-model.ipynb
+├── src/
+│   ├── __init__.py
+│   ├── config.py                 # To store constants like file paths
+│   ├── data_loader.py            # Functions for loading and merging data
+│   ├── feature_engineering.py    # Functions for each feature wave
+│   ├── model_trainer.py          # CV and model training logic
+│   └── tracking.py               # Our new experiment tracker
+├── models/                       # To save trained model files
+└── submissions/                  # To save submission files
