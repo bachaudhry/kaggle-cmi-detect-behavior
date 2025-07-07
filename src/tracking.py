@@ -19,14 +19,6 @@ class ExperimentTracker:
         self.use_wandb = use_wandb
         self.wandb_project_name = wandb_project_name
         self.wandb_entity = wandb_entity
-        
-        # Initialize the log if it doesn't exist
-        if not os.path.exists(self.log_file_path):
-            df = pd.DataFrame(columns=[
-                'timestamp', 'experiment_name', 'model_name',
-                'feature_wave', 'cv_score', 'params', 'notes'
-            ])
-            df.to_csv(self.log_file_path, index=False)
             
     def log_experiment(self, experiment_name, model_name, feature_wave, cv_score, params, notes=""):
         """
@@ -44,7 +36,9 @@ class ExperimentTracker:
         }
         # Log to local CSV file
         log_df = pd.DataFrame([log_data])
-        log_df.to_csv(self.log_file_path, mode='a', header=False, index=False)
+        file_exists = os.path.exists(self.log_file_path)
+        
+        log_df.to_csv(self.log_file_path, mode='a', header=not file_exists, index=False)
         print(f"Experiment '{experiment_name}' logged to {self.log_file_path}")
         
         # Log to Weights and Biases
