@@ -15,7 +15,7 @@ class ExperimentTracker:
             wandb_project_name (str): The W&B project name.
             wandb_entity (str): Your W&B username or entity.
         """
-        self.log_file_path = os.path.join(project_path, 'experiment_log.csv')
+        self.log_file_path = os.path.join(project_path, 'experiment_log_revised.csv') # Updated log name
         self.use_wandb = use_wandb
         self.wandb_project_name = wandb_project_name
         self.wandb_entity = wandb_entity
