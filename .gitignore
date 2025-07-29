@@ -3,3 +3,10 @@ imgs/
 src/__pycache__/
 .ipynb_checkpoints/
 cufile.log
+experiment_log_old.csv
+experiment_log_revised.csv
+notebooks/catboost_info
+notebooks/processed_data
+notebooks/export
+notebooks/wandb
+notebooks/submissions
