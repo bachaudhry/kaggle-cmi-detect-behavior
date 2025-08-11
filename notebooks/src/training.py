@@ -1,18 +1,72 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import StratifiedGroupKFold, cross_val_score
-from src.metrics import average_f1_score
+from sklearn.model_selection import StratifiedGroupKFold
+from sklearn.metrics import f1_score
 import lightgbm as lgb
-import xgboost as xgb
 import catboost as cat
-from datetime import time
+import time
 
 SEED=42
 
 
+def average_f1_score(y_true_encoded, y_pred_proba, inv_gesture_map, gesture_to_seq_type_map):
+    """
+    Calculates the competition F1 score using global maps.
+    
+    Args:
+        y_true_encoded: Encoded true labels
+        y_pred_proba: Predicted probabilities
+        inv_gesture_map: Dictionary mapping encoded labels to gesture strings
+        gesture_to_seq_type_map: Dictionary mapping gestures to sequence types
+    
+    Returns:
+        float: Average of binary and macro F1 scores
+    """
+    y_pred_encoded = np.argmax(y_pred_proba, axis=1)
+    
+    # Convert encoded labels back to strings
+    y_true_str = pd.Series(y_true_encoded).map(inv_gesture_map)
+    y_pred_str = pd.Series(y_pred_encoded).map(inv_gesture_map)
+    
+    # Check for potential mapping errors
+    if y_true_str.isnull().any() or y_pred_str.isnull().any():
+        raise ValueError("Error in label decoding. Check 'inv_gesture_map'!!")
+    
+    # Binary F1-Calculation
+    y_true_binary = y_true_str.map(gesture_to_seq_type_map)
+    y_pred_binary = y_pred_str.map(gesture_to_seq_type_map)
+    
+    # Debugging checks for invalid sequence types
+    invalid_types = set(y_true_binary.unique()) | set(y_pred_binary.unique())
+    valid_types = {'Target', 'Non-Target'}
+    if not invalid_types.issubset(valid_types):
+        raise ValueError(f"Invalid sequence types found: {invalid_types - valid_types}")
+    
+    binary_f1 = f1_score(y_true_binary, y_pred_binary, 
+                         pos_label='Target', average='binary')
+    
+    # Macro F1 calculations (collapsing non target)
+    def collapse_non_target(gesture):    
+        return 'non-target' if gesture_to_seq_type_map.get(gesture) == 'Non-Target' else gesture
+    
+    y_true_collapsed = y_true_str.apply(collapse_non_target)
+    y_pred_collapsed = y_pred_str.apply(collapse_non_target)
+    
+    # Debugging check for invalid gestures after collapse
+    invalid_collapsed = set(y_true_collapsed.unique()) | set(y_pred_collapsed.unique())
+    valid_collapsed = set(gesture_to_seq_type_map.keys()) | {'non_target'}
+    if not invalid_collapsed.issubset(valid_collapsed):
+        raise ValueError(f"Invalid collapsed gesture types found: {invalid_collapsed - valid_collapsed}")
+    
+    macro_f1 = f1_score(y_true_collapsed, y_pred_collapsed, average='macro')
+    return (binary_f1 + macro_f1) / 2
+    
+
 def train_and_evaluate_model(X: pd.DataFrame, y: pd.Series, groups: pd.Series,
                              model_type: str, model_params: dict,
-                             cv_splits: int, random_seed: int = SEED):
+                             cv_splits: int, random_seed: int = SEED, 
+                             gesture_to_seq_type_map=None,
+                             inv_gesture_map=None):
     """
     Trains a specified model using StratifiedGroupKFold and evaluates using the custom F1 metric.
     
@@ -33,9 +87,6 @@ def train_and_evaluate_model(X: pd.DataFrame, y: pd.Series, groups: pd.Series,
     # State management : Validate Inputs
     if len(X) != len(y) or len(X) != len(groups):
         raise ValueError("Length of X, y and groups must be equal.")
-    # Assuming MODEL_PARAMS are passed globally in notebooks.
-    if model_type not in MODEL_PARAMS: 
-        raise ValueError(f"Unsupported model type: {model_type}. Supported types: {list(MODEL_PARAMS.keys())}")
     
     skf = StratifiedGroupKFold(n_splits=cv_splits, shuffle=True, random_state=random_seed)
     
@@ -73,7 +124,8 @@ def train_and_evaluate_model(X: pd.DataFrame, y: pd.Series, groups: pd.Series,
         
         # --- Evaluate using Custom Metric ---
         try:
-            fold_f1 = average_f1_score(y_val_fold, y_pred_proba)
+            fold_f1 = average_f1_score(y_val_fold, y_pred_proba, inv_gesture_map=inv_gesture_map,
+                                     gesture_to_seq_type_map=gesture_to_seq_type_map)
             f1_scores.append(fold_f1)
             print(f"      Fold {fold + 1} F1 Score: {fold_f1:.4f}")
         except Exception as e:
