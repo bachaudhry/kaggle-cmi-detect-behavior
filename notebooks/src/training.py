@@ -62,11 +62,12 @@ def average_f1_score(y_true_encoded, y_pred_proba, inv_gesture_map, gesture_to_s
     return (binary_f1 + macro_f1) / 2
     
 
+
 def train_and_evaluate_model(X: pd.DataFrame, y: pd.Series, groups: pd.Series,
                              model_type: str, model_params: dict,
-                             cv_splits: int, random_seed: int = SEED, 
-                             gesture_to_seq_type_map=None,
-                             inv_gesture_map=None):
+                             cv_splits: int, random_seed: int, 
+                             gesture_to_seq_type_map: dict,
+                             inv_gesture_map: dict):
     """
     Trains a specified model using StratifiedGroupKFold and evaluates using the custom F1 metric.
     
@@ -78,6 +79,8 @@ def train_and_evaluate_model(X: pd.DataFrame, y: pd.Series, groups: pd.Series,
         model_params (dict): Parameters for the model.
         cv_splits (int): Number of CV splits.
         random_seed (int): Random seed for reproducibility.
+        inv_gesture_map (dict): Dictionary mapping encoded labels to gesture strings.
+        gesture_to_seq_type_map (dict): Dictionary mapping gestures to sequence types.
         
     Returns:
         dict: Dictionary containing model name, mean F1 score, std F1 score, and list of individual scores.
@@ -124,8 +127,7 @@ def train_and_evaluate_model(X: pd.DataFrame, y: pd.Series, groups: pd.Series,
         
         # --- Evaluate using Custom Metric ---
         try:
-            fold_f1 = average_f1_score(y_val_fold, y_pred_proba, inv_gesture_map=inv_gesture_map,
-                                     gesture_to_seq_type_map=gesture_to_seq_type_map)
+            fold_f1 = average_f1_score(y_val_fold, y_pred_proba, inv_gesture_map, gesture_to_seq_type_map)
             f1_scores.append(fold_f1)
             print(f"      Fold {fold + 1} F1 Score: {fold_f1:.4f}")
         except Exception as e:
