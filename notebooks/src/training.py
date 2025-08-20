@@ -9,7 +9,8 @@ import time
 SEED=42
 
 
-def average_f1_score(y_true_encoded, y_pred_proba, inv_gesture_map, gesture_to_seq_type_map):
+def average_f1_score(y_true_encoded, y_pred_proba, 
+                     gesture_to_seq_type_map: dict, inv_gesture_map: dict):
     """
     Calculates the competition F1 score using global maps.
     
@@ -47,7 +48,7 @@ def average_f1_score(y_true_encoded, y_pred_proba, inv_gesture_map, gesture_to_s
     
     # Macro F1 calculations (collapsing non target)
     def collapse_non_target(gesture):    
-        return 'non-target' if gesture_to_seq_type_map.get(gesture) == 'Non-Target' else gesture
+        return 'non_target' if gesture_to_seq_type_map.get(gesture) == 'Non-Target' else gesture
     
     y_true_collapsed = y_true_str.apply(collapse_non_target)
     y_pred_collapsed = y_pred_str.apply(collapse_non_target)
@@ -127,7 +128,7 @@ def train_and_evaluate_model(X: pd.DataFrame, y: pd.Series, groups: pd.Series,
         
         # --- Evaluate using Custom Metric ---
         try:
-            fold_f1 = average_f1_score(y_val_fold, y_pred_proba, inv_gesture_map, gesture_to_seq_type_map)
+            fold_f1 = average_f1_score(y_val_fold, y_pred_proba, gesture_to_seq_type_map, inv_gesture_map)
             f1_scores.append(fold_f1)
             print(f"      Fold {fold + 1} F1 Score: {fold_f1:.4f}")
         except Exception as e:
