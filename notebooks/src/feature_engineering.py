@@ -429,3 +429,206 @@ def create_wave4_features(df: pd.DataFrame, df_demographics: pd.DataFrame) -> pd
     print(f" Final Wave 4 DataFrame shape: {final_features_df.shape}")
     print("Wave 4 Feature Engineering (Interaction & Demographics on Aggregated Features) completed successfully.")
     return final_features_df
+
+
+
+def create_wave5_features(df: pd.DataFrame, df_demographics: pd.DataFrame, window_size: int=3) -> pd.DataFrame:
+    """
+    Creates Wave 5 features: Adds temporal features (rolling window stats, lags)
+    derived from the raw sensor data using 'sequence_counter' as the ordering index.
+    Then, integrates these new features using the standard phase-specific
+    aggregation framework (Wave 1/2 style), building upon the Wave 4 feature set.
+
+    Ensures continuity with Waves 1, 2, 3, and 4.
+    Correctly uses 'sequence_counter' as an ordering index for temporal calculations.
+    Handles ToF -1.0 values by converting to NaN before temporal calculations.
+    Adds rolling window features and lag features.
+    Explicitly manages grouping columns to prevent aggregation errors.
+    Integrates with the Wave 4 demographic and interaction feature framework.
+
+    Args:
+        df (pd.DataFrame): The raw training dataframe containing sensor data,
+                           sequence_id, phase, subject, gesture, sequence_counter.
+                           This MUST be the same raw df used for Waves 1, 2, 3 & 4.
+        df_demographics (pd.DataFrame): The demographics dataframe.
+                           This MUST be the same df used for Waves 4.
+        window_size (int, optional): The window size for rolling calculations.
+                                     Defaults to 10.
+
+    Returns:
+        pd.DataFrame: A dataframe with Wave 4 features plus new temporal features,
+                      aggregated by phase and unstacked. Ready for model training.
+    """
+    print("Starting Wave 5 Feature Engineering (Temporal Features)...")
+    
+    df_raw = df.copy()
+    print(f" Raw sensor DataFrame shape: {df_raw.shape}")
+    
+    # --- 1. Generate Wave 4 Features (Baseline with Interactions & Demographics) ---
+    print(" Generating Wave 4 features (includes Waves 1, 2, 3)...")
+    wave4_features_df = create_wave4_features(df_raw, df_demographics)
+    print(f" Wave 4 features generated. Shape: {wave4_features_df.shape}")
+    
+    # --- 2. Add temporal features to raw data
+    print("  Adding temporal features to raw data...")
+    df_with_temporal = df_raw.copy()
+    
+    # --- 2a. Handle -1.0 in ToF columns (in the raw data for temporal calculations) ---
+    # Find ToF columns, excluding 'tof_0'
+    tof_columns = [col for col in df_with_temporal.columns if col.startswith('tof_') and col != 'tof_0']
+    if tof_columns:
+        print(f"  - Found {len(tof_columns)} ToF columns. Handling -1.0 values for temporal features...")
+        initial_nans_before = df_with_temporal[tof_columns].isna().sum().sum()
+        df_with_temporal[tof_columns] = df_with_temporal[tof_columns].replace(-1.0, np.nan)
+        nans_introduced = df_with_temporal[tof_columns].isna().sum().sum() - initial_nans_before
+        print(f"  - Replaced {nans_introduced} instances of -1.0 with NaN in ToF data for temporal features.")
+    else:
+        print("  - No ToF columns found for temporal feature processing.")
+        
+    # --- 2b. Sort data for correct temporal ordering ---
+    print(" - Sorting data by `sequence_id` and `sequence_counter` for temporal calculations...")
+    df_with_temporal.sort_values(by=['sequence_id', 'sequence_counter'], inplace=True)
+    
+    # --- 2c. Define columns for temporal feature calculations
+    cols_for_temporal = [
+        'acc_x', 'acc_y', 'acc_z', 'acc_mag', # Accelerometer
+        'rot_x', 'rot_y', 'rot_z', 'rot_mag', # Gyroscope
+        'jerk', # Derived in Wave 2, but might need recalculation if not in raw df
+    ]
+    # Add available ToF/Thm columns if desired for temporal features
+    # Limit to a subset if there are many to manage dimensionality
+    # cols_for_temporal.extend(tof_columns[:10]) # Example: first 10 ToF
+    # cols_for_temporal.extend([f'thm_{i}' for i in range(1, 5)]) # Example: thm_1 to thm_4
+    
+    # Ensure derived features like acc_mag, rot_mag, jerk are present
+    if 'acc_mag' not in df_with_temporal.columns:
+        print("  - Calculating 'acc_mag' for temporal features...")
+        df_with_temporal['acc_mag'] = np.sqrt(df_with_temporal['acc_x']**2 + df_with_temporal['acc_y']**2 + df_with_temporal['acc_z']**2)
+    if 'rot_mag' not in df_with_temporal.columns:
+        print("  - Calculating 'rot_mag' for temporal features...")
+        df_with_temporal['rot_mag'] = np.sqrt(df_with_temporal['rot_w']**2 + df_with_temporal['rot_x']**2 + df_with_temporal['rot_y']**2 + df_with_temporal['rot_z']**2)
+    # Recalculate jerk to ensure it's based on the correctly ordered data
+    print("  - Calculating 'jerk' (corrected using sorted data) for temporal features...")
+    df_with_temporal['jerk'] = df_with_temporal.groupby('sequence_id')['acc_mag'].diff().fillna(0) # Or fillna(method='bfill') if preferred at start
+    
+    print(f"  - Columns selected for temporal feature calculation: {cols_for_temporal}")
+
+    # --- 2d. Calculate Rolling Window Statistics ---
+    print(f"  - Calculating rolling window statistics (window={window_size})...")
+    temporal_features_rolling = {}
+    for col in cols_for_temporal:
+        if col in df_with_temporal.columns:
+            # Use groupby to ensure rolling stats are calculated within each sequence
+            temporal_features_rolling[f'{col}_roll_mean_{window_size}'] = df_with_temporal.groupby('sequence_id')[col].rolling(window=window_size, min_periods=1).mean().reset_index(level=0, drop=True)
+            temporal_features_rolling[f'{col}_roll_std_{window_size}'] = df_with_temporal.groupby('sequence_id')[col].rolling(window=window_size, min_periods=1).std().reset_index(level=0, drop=True)
+            temporal_features_rolling[f'{col}_roll_min_{window_size}'] = df_with_temporal.groupby('sequence_id')[col].rolling(window=window_size, min_periods=1).min().reset_index(level=0, drop=True)
+            temporal_features_rolling[f'{col}_roll_max_{window_size}'] = df_with_temporal.groupby('sequence_id')[col].rolling(window=window_size, min_periods=1).max().reset_index(level=0, drop=True)
+            temporal_features_rolling[f'{col}_roll_skew_{window_size}'] = df_with_temporal.groupby('sequence_id')[col].rolling(window=window_size, min_periods=1).skew().reset_index(level=0, drop=True)
+        else:
+            print(f"    - Warning: Column '{col}' not found in data for rolling stats.")
+
+    if temporal_features_rolling:
+        df_temporal_rolling = pd.DataFrame(temporal_features_rolling)
+        df_with_temporal = pd.concat([df_with_temporal, df_temporal_rolling], axis=1)
+        print(f"  - Added {len(temporal_features_rolling)} rolling window features.")
+    else:
+        print("  - No rolling window features were added.")
+
+    # --- 2e. Calculate Lag Features ---
+    print("  - Calculating lag features...")
+    temporal_features_lag = {}
+    for col in cols_for_temporal:
+        if col in df_with_temporal.columns:
+             # Lag by 1 step
+             temporal_features_lag[f'{col}_lag1'] = df_with_temporal.groupby('sequence_id')[col].shift(1)
+             # Could add more lags (lag2, lag3) or differences (diff1 = col - lag1)
+             # temporal_features_lag[f'{col}_diff1'] = df_with_temporal[col] - temporal_features_lag[f'{col}_lag1']
+        else:
+             print(f"    - Warning: Column '{col}' not found in data for lag features.")
+
+    if temporal_features_lag:
+        df_temporal_lag = pd.DataFrame(temporal_features_lag)
+        df_with_temporal = pd.concat([df_with_temporal, df_temporal_lag], axis=1)
+        print(f"  - Added {len(temporal_features_lag)} lag features.")
+    else:
+        print("  - No lag features were added.")
+
+    print(f" Raw data with temporal features shape: {df_with_temporal.shape}")
+
+    # --- 3. Perform Standard Phase-Specific Aggregation (Wave 1/2 Style) on Augmented Raw Data ---
+    print(" Performing standard phase-specific aggregation using Wave 2 logic on data with temporal features...")
+    try:
+        # We need to aggregate the new temporal features.
+        # The most robust way is to reuse the core aggregation logic.
+        # However, create_wave2_features expects the raw sensor df structure.
+        # A clean approach is to create a modified version of the aggregation
+        # that includes these new temporal columns.
+        
+        # Let's define the columns to aggregate: the new temporal ones plus any key existing ones
+        # if not already covered by Wave 4's aggregation.
+        # The safest bet is to aggregate ALL numerical columns that were added.
+        temporal_feature_cols = list(temporal_features_rolling.keys()) + list(temporal_features_lag.keys())
+        print(f"  - Identified {len(temporal_feature_cols)} temporal feature columns for aggregation.")
+
+        if not temporal_feature_cols:
+            print("  - No temporal features to aggregate. Returning Wave 4 features.")
+            final_features_df = wave4_features_df
+        else:
+            # --- Define Aggregations for Temporal Features ---
+            # Use the same aggregations as Wave 1/2 for consistency
+            aggregations = ['mean', 'std', 'min', 'max', 'median', 'skew'] # skew added in it-2
+
+            # Create aggregation dictionary for temporal features
+            aggs_temporal = {}
+            for col in temporal_feature_cols:
+                if col in df_with_temporal.columns: # Double-check
+                    aggs_temporal[col] = aggregations
+                else:
+                     print(f"    - Warning: Temporal feature column '{col}' not found in df_with_temporal.")
+
+            if not aggs_temporal:
+                print("  - No valid temporal features found for aggregation. Returning Wave 4 features.")
+                final_features_df = wave4_features_df
+            else:
+                # --- Perform Aggregation ---
+                print("  - Grouping by ['sequence_id', 'phase'] and aggregating temporal features...")
+                try:
+                    agg_df_temporal = df_with_temporal.groupby(['sequence_id', 'phase']).agg(aggs_temporal)
+                    print(f"  - Temporal feature aggregation completed. Shape before flattening: {agg_df_temporal.shape}")
+
+                    # --- Flatten Column Names ---
+                    print("  - Flattening MultiIndex columns for temporal features...")
+                    agg_df_temporal.columns = ['_'.join(col).strip() for col in agg_df_temporal.columns.values]
+                    agg_df_temporal.reset_index(inplace=True)
+                    print(f"  - Temporal feature columns flattened.")
+
+                    # --- Unstack Phase Dimension ---
+                    print("  - Unstacking 'phase' level for temporal features...")
+                    agg_df_temporal.set_index(['sequence_id', 'phase'], inplace=True)
+                    agg_df_temporal_unstacked = agg_df_temporal.unstack(level='phase')
+                    print(f"  - Temporal features unstacked. Shape: {agg_df_temporal_unstacked.shape}")
+
+                    # --- Flatten MultiIndex Columns Again ---
+                    print("  - Flattening final MultiIndex columns for temporal features...")
+                    new_cols_temporal = [f"{sensor_stat}_{phase}" for sensor_stat, phase in agg_df_temporal_unstacked.columns]
+                    agg_df_temporal_unstacked.columns = new_cols_temporal
+                    agg_df_temporal_unstacked.reset_index(inplace=True) # sequence_id becomes a column
+                    agg_df_temporal_unstacked.set_index('sequence_id', inplace=True) # Set sequence_id as index
+                    print(f"  - Final temporal feature columns flattened. New column count: {len(agg_df_temporal_unstacked.columns)}")
+
+                    # --- Merge Temporal Features with Wave 4 Features ---
+                    print("  - Merging temporal features with Wave 4 features...")
+                    # Both DataFrames should now have 'sequence_id' as their index.
+                    final_features_df = pd.merge(wave4_features_df, agg_df_temporal_unstacked, left_index=True, right_index=True, how='left')
+                    print(f"  - Merge completed. Final DataFrame shape: {final_features_df.shape}")
+
+                except KeyError as e:
+                    raise KeyError(f"Temporal feature aggregation failed due to missing key/column: {e}.") from e
+                except Exception as e:
+                    raise RuntimeError(f"An unexpected error occurred during temporal feature aggregation: {e}") from e
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to perform aggregation on data with temporal features: {e}") from e
+
+    print("Wave 5 Feature Engineering (Temporal Features) completed successfully.")
+    return final_features_df
